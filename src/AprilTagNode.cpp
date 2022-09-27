@@ -13,6 +13,8 @@
 // apriltag
 #include <apriltag.h>
 #include "tag_functions.hpp"
+// for precise pose estimation
+#include <apriltag_pose.h>
 
 #include <Eigen/Dense>
 
@@ -55,30 +57,50 @@ descr(const std::string& description, const bool& read_only = false)
     return descr;
 }
 
-void getPose(const matd_t& H,
+void getPose(const apriltag_detection_t& det,
+             const Mat3& K,
              const Mat3& Pinv,
              geometry_msgs::msg::Transform& t,
              const double size,
-             const bool z_up)
+             const bool z_up,
+             const bool refine_pose)
 {
     // compute extrinsic camera parameter
-    // https://dsp.stackexchange.com/a/2737/31703
-    // H = K * T  =>  T = K^(-1) * H
-    const Mat3 T = Pinv * Eigen::Map<const Mat3>(H.data);
-    Mat3 R;
-    R.col(0) = T.col(0).normalized();
-    R.col(1) = T.col(1).normalized();
-    R.col(2) = R.col(0).cross(R.col(1));
+    if(refine_pose) {
+        // by using estimate_tag_pose() - high precision
+        // First create an apriltag_detection_info_t struct using your known parameters
+        apriltag_detection_info_t info;
+        info.det = det;
+        info.tagsize = size;
+        info.fx = K(0,0);
+        info.fy = K(1,1);
+        info.cx = K(0,2);
+        info.cy = K(1,2);
+        // Then call estimate_tag_pose
+        apriltag_pose_t pose;
+        double err = estimate_tag_pose(&info, &pose);
+        Mat3 R = pose.R->data;
+        const Eigen::Vector3d tt = pose.t->data;
+    } else {
+        // by using the homography - low precision
+        // https://dsp.stackexchange.com/a/2737/31703
+        // H = K * T  =>  T = K^(-1) * H
+        const Mat3 T = Pinv * Eigen::Map<const Mat3>((det->H).data);
+        Mat3 R;
+        R.col(0) = T.col(0).normalized();
+        R.col(1) = T.col(1).normalized();
+        R.col(2) = R.col(0).cross(R.col(1));
+
+        // the corner coordinates of the tag in the canonical frame are (+/-1, +/-1)
+        // hence the scale is half of the edge size
+        const Eigen::Vector3d tt = T.rightCols<1>() / ((T.col(0).norm() + T.col(0).norm())/2.0) * (size/2.0);
+    }
 
     if(z_up) {
         // rotate by half rotation about x-axis
         R.col(1) *= -1;
         R.col(2) *= -1;
     }
-
-    // the corner coordinates of the tag in the canonical frame are (+/-1, +/-1)
-    // hence the scale is half of the edge size
-    const Eigen::Vector3d tt = T.rightCols<1>() / ((T.col(0).norm() + T.col(0).norm())/2.0) * (size/2.0);
 
     const Eigen::Quaterniond q(R);
 
@@ -112,6 +134,7 @@ private:
     std::unordered_map<int, std::string> tag_frames;
     std::unordered_map<int, double> tag_sizes;
     std::atomic<bool> z_up;
+    std::atomic<bool> refine_pose;
 
     std::function<void(apriltag_family_t*)> tf_destructor;
 
@@ -157,6 +180,7 @@ AprilTagNode::AprilTagNode(const rclcpp::NodeOptions& options)
     declare_parameter<int>("max_hamming", 0, descr("reject detections with more corrected bits than allowed"));
     declare_parameter("profile", false, descr("print profiling information to stdout"));
     declare_parameter<bool>("z_up", true, descr("let the z axis of the tag frame point up"));
+    declare_parameter<bool>("refine-pose", false, descr("increase the accuracy of the extracted pose"));
 
     if(!frames.empty()) {
         if(ids.size()!=frames.size()) {
@@ -239,7 +263,7 @@ void AprilTagNode::onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_i
         tf.header = msg_img->header;
         // set child frame name by generic tag name or configured tag name
         tf.child_frame_id = tag_frames.count(det->id) ? tag_frames.at(det->id) : std::string(det->family->name)+":"+std::to_string(det->id);
-        getPose(*(det->H), Pinv, tf.transform, tag_sizes.count(det->id) ? tag_sizes.at(det->id) : tag_edge_size, z_up);
+        getPose(*det, msg_ci->k.data(), Pinv, tf.transform, tag_sizes.count(det->id) ? tag_sizes.at(det->id) : tag_edge_size, z_up, refine_pose);
 
         tfs.push_back(tf);
     }
@@ -269,6 +293,7 @@ AprilTagNode::onParameter(const std::vector<rclcpp::Parameter>& parameters)
         IF("max_hamming", max_hamming)
         IF("profile", profile)
         IF("z_up", z_up)
+        IF("refine-pose", refine_pose)
     }
 
     mutex.unlock();
