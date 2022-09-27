@@ -11,9 +11,10 @@ apriltag:
             threads: 1          # number of threads
             decimate: 1.0       # decimate resolution for quad detection
             blur: 0.0           # sigma of Gaussian blur for quad detection
-            refine: true        # snap to strong gradients
+            refine-edges: true        # snap to strong gradients
             sharpening: 0.25    # sharpening of decoded images
             debug: false        # write additional debugging images to current working directory
+            refine-pose: false  # increase the accuracy of the extracted pose
 
         # optional list of tags
         tag:

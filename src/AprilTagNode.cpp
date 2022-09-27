@@ -176,9 +176,9 @@ AprilTagNode::AprilTagNode(const rclcpp::NodeOptions& options)
     declare_parameter("detector.threads", td->nthreads, descr("number of threads"));
     declare_parameter("detector.decimate", td->quad_decimate, descr("decimate resolution for quad detection"));
     declare_parameter("detector.blur", td->quad_sigma, descr("sigma of Gaussian blur for quad detection"));
-    declare_parameter<bool>("detector.refine", td->refine_edges, descr("snap to strong gradients"));
+    declare_parameter<int>("detector.refine-edges", td->refine_edges, descr("snap to strong gradients"));
     declare_parameter("detector.sharpening", td->decode_sharpening, descr("sharpening of decoded images"));
-    declare_parameter<bool>("detector.debug", td->debug, descr("write additional debugging images to working directory"));
+    declare_parameter<int>("detector.debug", td->debug, descr("write additional debugging images to working directory"));
 
     declare_parameter<int>("max_hamming", 0, descr("reject detections with more corrected bits than allowed"));
     declare_parameter("profile", false, descr("print profiling information to stdout"));
@@ -290,7 +290,7 @@ AprilTagNode::onParameter(const std::vector<rclcpp::Parameter>& parameters)
         IF("detector.threads", td->nthreads)
         IF("detector.decimate", td->quad_decimate)
         IF("detector.blur", td->quad_sigma)
-        IF("detector.refine", td->refine_edges)
+        IF("detector.refine-edges", td->refine_edges)
         IF("detector.sharpening", td->decode_sharpening)
         IF("detector.debug", td->debug)
         IF("max_hamming", max_hamming)
