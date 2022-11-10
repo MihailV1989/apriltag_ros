@@ -58,7 +58,7 @@ descr(const std::string& description, const bool& read_only = false)
 }
 
 void getPose(apriltag_detection_t* det,
-             Mat3& K,
+             const Mat3& K,
              const Mat3& Pinv,
              geometry_msgs::msg::Transform& t,
              const double size,
@@ -218,26 +218,11 @@ AprilTagNode::~AprilTagNode() {
 void AprilTagNode::onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_img,
                             const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg_ci)
 {
+    // precompute inverse projection matrix
+    const Mat3 Pinv = Eigen::Map<const Eigen::Matrix<double, 3, 4, Eigen::RowMajor>>(msg_ci->p.data()).leftCols<3>().inverse();
+
     // convert to 8bit monochrome image
     const cv::Mat img_uint8 = cv_bridge::toCvShare(msg_img, "mono8")->image;
-
-    // the CameraInfo message provides the intrinsic camera parameters that are valid only for the calibration resolution
-    // the camera matrices K and P have to be scaled according actual image resolution in order to get correct pose
-    const float scale_x = (float)img_uint8.cols / (float)msg_ci->width;
-    const float scale_y = (float)img_uint8.rows / (float)msg_ci->height;
-    Mat3 K(msg_ci->k.data());
-    K(0,0) *= scale_x;
-    K(0,2) *= scale_x;
-    K(1,1) *= scale_y;
-    K(1,2) *= scale_y;
-    Eigen::Matrix<double, 3, 4, Eigen::RowMajor> P(msg_ci->p.data());
-    P(0,0) *= scale_x;
-    P(0,2) *= scale_x;
-    P(1,1) *= scale_y;
-    P(1,2) *= scale_y;
-
-    // precompute inverse projection matrix
-    const Mat3 Pinv = P.leftCols<3>().inverse();
 
     image_u8_t im{img_uint8.cols, img_uint8.rows, img_uint8.cols, img_uint8.data};
 
@@ -281,7 +266,7 @@ void AprilTagNode::onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_i
         tf.header = msg_img->header;
         // set child frame name by generic tag name or configured tag name
         tf.child_frame_id = tag_frames.count(det->id) ? tag_frames.at(det->id) : std::string(det->family->name)+":"+std::to_string(det->id);
-        getPose(det, K, Pinv, tf.transform, tag_sizes.count(det->id) ? tag_sizes.at(det->id) : tag_edge_size, z_up, refine_pose);
+        getPose(det, Eigen::Map<const Mat3>(msg_ci->k.data()), Pinv, tf.transform, tag_sizes.count(det->id) ? tag_sizes.at(det->id) : tag_edge_size, z_up, refine_pose);
 
         tfs.push_back(tf);
     }
